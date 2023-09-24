@@ -119,7 +119,7 @@ void printNowUsingAceTime(time_t now) {
 
 
 
-const char* googleApiKey = "AIzaSyBb3czYcUFpQnm25rdUXz7I4iqh4wjLgMg";
+const char* googleApiKey = "SECRET_KEY";
 
 WifiLocation location (googleApiKey);
 
