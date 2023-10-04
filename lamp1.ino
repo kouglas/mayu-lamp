@@ -1,8 +1,12 @@
 #include <WiFiManager.h>
 #include <WebServer.h>
 #include <Arduino.h>
+#include <HTTPClient.h> // Include the HTTPClient library
+#include <ArduinoJson.h> 
+
 
 #include <WiFi.h>
+// this version should be getting timezone with google timezone api
 
 /*
 if you're going to use the WIfiLocation library
@@ -39,6 +43,21 @@ static const unsigned long REBOOT_TIMEOUT_MILLIS = 15000;
 static const char* const DAYS_OF_WEEK[] = {
     "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 };
+
+
+WebServer server(80);
+
+// Variables to store latitude and longitude
+double latitude = 0.0;
+double longitude = 0.0;
+
+
+// void handleSave() {
+//   latitude = server.arg("latitude").toDouble();
+//   longitude = server.arg("longitude").toDouble();
+//   server.send(200, "text/plain", "Settings saved. Latitude: " + String(latitude, 7) + ", Longitude: " + String(longitude, 7));
+// }
+
 
 // Print the UTC time from time_t, using C library functions.
 void printNowUsingCLibrary(time_t now) {
@@ -119,7 +138,7 @@ void printNowUsingAceTime(time_t now) {
 
 
 
-const char* googleApiKey = "SECRET_KEY";
+const char* googleApiKey = "AIzaSyBb3czYcUFpQnm25rdUXz7I4iqh4wjLgMg";
 
 WifiLocation location (googleApiKey);
 
@@ -181,12 +200,56 @@ void setupSntp() {
   }
 }
 
+// Make sure to enaable the Timezone API in your google settings
+// Function to get time zone information from Google Time Zone API
+void getTimeZoneInfo(float lat, float lon) {
+  HTTPClient http;
+  String apiUrl = "https://maps.googleapis.com/maps/api/timezone/json?location=" +
+                  String(lat, 6) + "," + String(lon, 6) +
+                  "&timestamp=" + String(time(nullptr)) +
+                  "&key=" + googleApiKey;
+
+  Serial.print("Requesting Time Zone Info from Google API: ");
+  Serial.println(apiUrl);
+
+  http.begin(apiUrl);
+
+  int httpCode = http.GET();
+  if (httpCode > 0) {
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      // Parse the JSON response here and extract time zone information
+      // Example: You can use ArduinoJson library to parse JSON.
+
+      DynamicJsonDocument doc(1024); // Adjust the buffer size as needed
+      deserializeJson(doc, payload);
+
+      const char* timeZoneName = doc["timeZoneName"]; // Time zone name
+      int timeZoneOffset = doc["rawOffset"]; // Raw time zone offset in seconds
+
+      Serial.println("Time Zone Name: " + String(timeZoneName));
+      Serial.println("Raw Offset: " + String(timeZoneOffset) + " seconds");
+    }
+  } else {
+    Serial.println("Error on HTTP request");
+  }
+
+  http.end();
+}
+
 void setup()
 {
   Serial.begin(115200);
   delay(10);
 
   WiFiManager wifiManager;
+
+  // Custom parameters for latitude and longitude inputs
+  WiFiManagerParameter custom_latitude("latitude", "Latitude", String(latitude, 7).c_str(), 20);
+  WiFiManagerParameter custom_longitude("longitude", "Longitude", String(longitude, 7).c_str(), 20);
+
+  wifiManager.addParameter(&custom_latitude);
+  wifiManager.addParameter(&custom_longitude);
 
 
   // If you've previously connected to your WiFi with this ESP32,
@@ -217,12 +280,24 @@ void setup()
   setClock ();
   location_t loc = location.getGeoFromWiFi();
 
+    latitude = loc.lat;
+    longitude = loc.lon;
+
     Serial.println("Location request data");
     Serial.println(location.getSurroundingWiFiJson()+"\n");
     Serial.println ("Location: " + String (loc.lat, 7) + "," + String (loc.lon, 7));
     //Serial.println("Longitude: " + String(loc.lon, 7));
     Serial.println ("Accuracy: " + String (loc.accuracy));
     Serial.println ("Result: " + location.wlStatusStr (location.getStatus ()));
+
+    // Get time zone information from Google Time Zone API
+    getTimeZoneInfo(loc.lat, loc.lon);
+
+    // Retrieve the user-defined latitude and longitude values
+    latitude = atof(custom_latitude.getValue());
+    longitude = atof(custom_longitude.getValue());
+
+    server.begin();
 }
 
 void loop() {
@@ -231,6 +306,7 @@ void loop() {
   printNowUsingCLibrary(now);
   printNowUsingAceTime(now);
   Serial.println();
+  server.handleClient();
 
   delay(5000);
 
